@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OGS Bike Map — BC Cycling Infrastructure</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚴</text></svg>">
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --surface2: #334155; --border: #475569;
+    --text: #e2e8f0; --text2: #94a3b8; --accent: #22c55e; --accent2: #14b8a6;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 1000; flex-shrink: 0; }
+  .header h1 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .header h1 span { color: var(--accent); }
+  .header-links { display: flex; gap: 12px; align-items: center; }
+  .header-links a { color: var(--text2); text-decoration: none; font-size: 13px; }
+  .header-links a:hover { color: var(--text); }
+
+  /* Map container */
+  #map { flex: 1; z-index: 1; }
+  
+  /* Sidebar panel */
+  .panel { position: absolute; top: 52px; right: 12px; z-index: 999; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: 280px; max-height: calc(100vh - 72px); overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .panel-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .panel-header h2 { font-size: 14px; font-weight: 600; }
+  .panel-close { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 18px; padding: 0 4px; }
+  .panel-close:hover { color: var(--text); }
+  .panel-body { padding: 12px 14px; }
+  
+  /* Legend */
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; cursor: pointer; }
+  .legend-item:hover { background: var(--surface2); border-radius: 4px; }
+  .legend-swatch { width: 24px; height: 4px; border-radius: 2px; flex-shrink: 0; }
+  .legend-swatch.thick { height: 6px; }
+  .legend-label { flex: 1; color: var(--text); }
+  .legend-count { color: var(--text2); font-size: 11px; }
+  .legend-item.disabled { opacity: 0.4; }
+  .legend-item.disabled .legend-swatch { background: var(--text2) !important; }
+
+  /* Controls */
+  .controls { padding: 10px 14px; border-top: 1px solid var(--border); }
+  .control-group { margin-bottom: 8px; }
+  .control-group label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .control-group select, .control-group input { width: 100%; padding: 6px 8px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px; }
+  .control-group select:focus, .control-group input:focus { outline: none; border-color: var(--accent); }
+  
+  .btn { width: 100%; padding: 8px; background: var(--accent); color: #000; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.secondary { background: var(--surface2); color: var(--text); }
+
+  /* Stats bar */
+  .stats-bar { padding: 6px 14px; background: var(--surface); border-top: 1px solid var(--border); display: flex; gap: 16px; font-size: 12px; color: var(--text2); z-index: 1000; flex-shrink: 0; }
+  .stats-bar strong { color: var(--accent); }
+
+  /* Popup */
+  .leaflet-popup-content-wrapper { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
+  .leaflet-popup-tip { background: var(--surface); }
+  .leaflet-popup-content { margin: 10px 14px; font-size: 13px; line-height: 1.5; }
+  .popup-class { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .popup-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .popup-meta { color: var(--text2); margin-top: 4px; }
+
+  /* Loading */
+  .loading { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--surface); border: 1px solid var(--border); padding: 6px 16px; border-radius: 20px; font-size: 13px; color: var(--text2); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+  .loading.hidden { display: none; }
+
+  /* Mobile */
+  @media (max-width: 640px) {
+    .panel { width: calc(100% - 24px); right: 12px; left: 12px; }
+    .header h1 { font-size: 14px; }
+    .header-links { gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🚴 <span>OGS</span> Bike Map</h1>
+  <div class="header-links">
+    <a href="https://ogsapps.cc">Portal</a>
+    <a href="https://sea.ogsapps.cc">Sea</a>
+    <a href="https://elevation.ogsapps.cc">Elevation</a>
+    <button onclick="togglePanel()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px" title="Toggle panel">⚙️</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="loading hidden" id="loading">Loading cycling data…</div>
+
+<div class="panel" id="panel">
+  <div class="panel-header">
+    <h2>Cycling Layers</h2>
+    <button class="panel-close" onclick="togglePanel()">✕</button>
+  </div>
+  <div class="panel-body">
+    <div id="legend"></div>
+  </div>
+  <div class="controls">
+    <div class="control-group">
+      <label>Municipality</label>
+      <select id="muni-filter" onchange="reloadData()">
+        <option value="">All BC</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>Road Type Filter</label>
+      <select id="class-filter" onchange="reloadData()">
+        <option value="">All types</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn secondary" onclick="resetView()">Reset View</button>
+    </div>
+  </div>
+</div>
+
+<div class="stats-bar">
+  <span>Segments: <strong id="stat-segments">0</strong></span>
+  <span>Total: <strong id="stat-km">0</strong> km</span>
+  <span>Showing: <strong id="stat-showing">0</strong></span>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API = 'https://maps.ogsapps.cc/api';
+const CLASSES = {
+  cycle_track:         { label: 'Protected Bike Lane',  color: '#22c55e', weight: 5, group: 'high' },
+  bike_path:           { label: 'Bike Path',            color: '#22c55e', weight: 5, group: 'high' },
+  multi_use_path:      { label: 'Multi-Use Path',       color: '#14b8a6', weight: 4, group: 'high' },
+  painted_bike_lane:   { label: 'Painted Bike Lane',    color: '#eab308', weight: 3, group: 'med' },
+  local_street_bikeway:{ label: 'Local Street Bikeway', color: '#3b82f6', weight: 3, group: 'med' },
+  shared_roadway:      { label: 'Shared Roadway',       color: '#f97316', weight: 2, group: 'low' },
+  major_shared_roadway:{ label: 'Major Shared Roadway', color: '#ef4444', weight: 2, group: 'low' },
+  gravel_trail:        { label: 'Gravel Trail',         color: '#92400e', weight: 2, group: 'low' },
+};
+
+const COMFORT = {
+  high: { label: '🟢 High Comfort', color: '#22c55e' },
+  med:  { label: '🟡 Medium Comfort', color: '#eab308' },
+  low:  { label: '🔴 Low Comfort', color: '#f97316' },
+};
+
+let map, layers = {}, enabled = new Set(Object.keys(CLASSES)), municipalities = [], loading = false;
+
+// Init map
+map = L.map('map', { zoomControl: true }).setView([49.28, -123.12], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://osm.org/copyright">OSM</a>',
+  maxZoom: 18
+}).addTo(map);
+
+// Create layer groups
+for (const [cls, info] of Object.entries(CLASSES)) {
+  layers[cls] = L.layerGroup().addTo(map);
+}
+
+// Build legend
+function buildLegend() {
+  const el = document.getElementById('legend');
+  let html = '';
+  for (const [group, meta] of Object.entries(COMFORT)) {
+    html += `<div style="font-size:11px;color:var(--text2);margin:8px 0 4px;text-transform:uppercase;letter-spacing:0.5px">${meta.label}</div>`;
+    for (const [cls, info] of Object.entries(CLASSES)) {
+      if (info.group !== group) continue;
+      const isOn = enabled.has(cls);
+      html += `<div class="legend-item ${isOn ? '' : 'disabled'}" data-class="${cls}">
+        <div class="legend-swatch ${info.weight >= 4 ? 'thick' : ''}" style="background:${info.color}"></div>
+        <span class="legend-label">${info.label}</span>
+        <span class="legend-count" id="count-${cls}"></span>
+      </div>`;
+    }
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.legend-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const cls = item.dataset.class;
+      if (enabled.has(cls)) { enabled.delete(cls); } else { enabled.add(cls); }
+      toggleLayers();
+      buildLegend();
+    });
+  });
+}
+
+function toggleLayers() {
+  for (const [cls, lg] of Object.entries(layers)) {
+    if (enabled.has(cls)) { if (!map.hasLayer(lg)) map.addLayer(lg); }
+    else { if (map.hasLayer(lg)) map.removeLayer(lg); }
+  }
+}
+
+// Load municipalities
+async function loadMunicipalities() {
+  try {
+    const res = await fetch(`${API}/cycling/municipalities`);
+    const data = await res.json();
+    municipalities = data.municipalities || [];
+    const sel = document.getElementById('muni-filter');
+    municipalities.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = `${m.name} (${m.km} km)`;
+      sel.appendChild(opt);
+    });
+  } catch (e) { console.error('Failed to load municipalities', e); }
+}
+
+// Build class filter dropdown
+function buildClassFilter() {
+  const sel = document.getElementById('class-filter');
+  for (const [cls, info] of Object.entries(CLASSES)) {
+    const opt = document.createElement('option');
+    opt.value = cls;
+    opt.textContent = info.label;
+    sel.appendChild(opt);
+  }
+}
+
+// Load cycling data for current view
+async function loadCyclingData() {
+  if (loading) return;
+  const bounds = map.getBounds();
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  
+  const muni = document.getElementById('muni-filter').value;
+  const cls = document.getElementById('class-filter').value;
+  
+  let url = `${API}/cycling/bbox?south=${sw.lat.toFixed(5)}&north=${ne.lat.toFixed(5)}&west=${sw.lng.toFixed(5)}&east=${ne.lng.toFixed(5)}&limit=2000`;
+  if (muni) url += `&municipality=${encodeURIComponent(muni)}`;
+  if (cls) url += `&class=${encodeURIComponent(cls)}`;
+  
+  loading = true;
+  document.getElementById('loading').classList.remove('hidden');
+  
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    renderFeatures(data.features || []);
+  } catch (e) {
+    console.error('Failed to load cycling data', e);
+  } finally {
+    loading = false;
+    document.getElementById('loading').classList.add('hidden');
+  }
+}
+
+function renderFeatures(features) {
+  // Clear all layers
+  for (const lg of Object.values(layers)) lg.clearLayers();
+  
+  const counts = {};
+  let totalKm = 0, shown = 0;
+  
+  features.forEach(f => {
+    const props = f.properties;
+    const cls = props.canbics_class;
+    if (!cls || !CLASSES[cls]) return;
+    counts[cls] = (counts[cls] || 0) + 1;
+    totalKm += props.length_km || 0;
+    
+    if (!enabled.has(cls)) return;
+    shown++;
+    
+    const info = CLASSES[cls];
+    const coords = f.geometry.coordinates;
+    
+    // Convert MultiLineString coords to Leaflet latLng
+    const lineGroups = coords.map(line => line.map(pt => [pt[1], pt[0]]));
+    
+    lineGroups.forEach(latlngs => {
+      const line = L.polyline(latlngs, {
+        color: info.color,
+        weight: info.weight,
+        opacity: 0.8,
+        smoothFactor: 1,
+      });
+      
+      line.on('click', () => {
+        line.bindPopup(`
+          <div class="popup-class"><div class="popup-dot" style="background:${info.color}"></div>${info.label}</div>
+          <div class="popup-meta">
+            ${props.municipality}<br>
+            ${props.length_km ? props.length_km.toFixed(2) + ' km' : ''} 
+            ${props.surface_type ? '· ' + props.surface_type : ''}
+            ${props.source_class ? '<br>' + props.source_class : ''}
+          </div>
+        `).openPopup();
+      });
+      
+      // Hover highlight
+      line.on('mouseover', () => line.setStyle({ weight: info.weight + 3, opacity: 1 }));
+      line.on('mouseout', () => line.setStyle({ weight: info.weight, opacity: 0.8 }));
+      
+      layers[cls].addLayer(line);
+    });
+  });
+  
+  // Update stats
+  document.getElementById('stat-segments').textContent = features.length.toLocaleString();
+  document.getElementById('stat-km').textContent = totalKm.toFixed(1);
+  document.getElementById('stat-showing').textContent = shown.toLocaleString();
+  
+  // Update legend counts
+  for (const cls of Object.keys(CLASSES)) {
+    const el = document.getElementById(`count-${cls}`);
+    if (el) el.textContent = counts[cls] ? counts[cls].toLocaleString() : '';
+  }
+}
+
+function reloadData() { loadCyclingData(); }
+
+function resetView() {
+  map.setView([49.28, -123.12], 12);
+  document.getElementById('muni-filter').value = '';
+  document.getElementById('class-filter').value = '';
+  loadCyclingData();
+}
+
+function togglePanel() {
+  const panel = document.getElementById('panel');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+// Map events — reload on move/zoom with debounce
+let moveTimeout;
+map.on('moveend', () => {
+  clearTimeout(moveTimeout);
+  moveTimeout = setTimeout(loadCyclingData, 300);
+});
+
+// Init
+buildLegend();
+buildClassFilter();
+loadMunicipalities();
+loadCyclingData();
+</script>
+</body>
+</html>
