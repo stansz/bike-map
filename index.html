@@ -8,8 +8,8 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚴</text></svg>">
 <style>
   :root {
-    --bg: #0f172a; --surface: #1e293b; --surface2: #334155; --border: #475569;
-    --text: #e2e8f0; --text2: #94a3b8; --accent: #22c55e; --accent2: #14b8a6;
+    --bg: #f8fafc; --surface: #ffffff; --surface2: #f1f5f9; --border: #e2e8f0;
+    --text: #1e293b; --text2: #64748b; --accent: #22c55e; --accent2: #14b8a6;
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -126,6 +126,7 @@
   <span>Segments: <strong id="stat-segments">0</strong></span>
   <span>Total: <strong id="stat-km">0</strong> km</span>
   <span>Showing: <strong id="stat-showing">0</strong></span>
+  <span id="stat-debug" style="display:none"></span>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -152,7 +153,7 @@ let map, layers = {}, enabled = new Set(Object.keys(CLASSES)), municipalities = 
 
 // Init map
 map = L.map('map', { zoomControl: true }).setView([49.28, -123.12], 12);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://osm.org/copyright">OSM</a>',
   maxZoom: 18
 }).addTo(map);
@@ -242,10 +243,14 @@ async function loadCyclingData() {
   
   try {
     const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    console.log(`Loaded ${data.features?.length} features`, `zoom=${map.getZoom()}`, `bounds=${sw.lat.toFixed(3)},${sw.lng.toFixed(3)} to ${ne.lat.toFixed(3)},${ne.lng.toFixed(3)}`);
     renderFeatures(data.features || []);
   } catch (e) {
     console.error('Failed to load cycling data', e);
+    document.getElementById('stat-debug').style.display = '';
+    document.getElementById('stat-debug').textContent = 'Error: ' + e.message;
   } finally {
     loading = false;
     document.getElementById('loading').classList.add('hidden');
@@ -276,6 +281,7 @@ function renderFeatures(features) {
     const lineGroups = coords.map(line => line.map(pt => [pt[1], pt[0]]));
     
     lineGroups.forEach(latlngs => {
+      // For bbox-based data: draw as a thin rectangle or just a marker if too small
       const line = L.polyline(latlngs, {
         color: info.color,
         weight: info.weight,
@@ -308,6 +314,14 @@ function renderFeatures(features) {
   document.getElementById('stat-km').textContent = totalKm.toFixed(1);
   document.getElementById('stat-showing').textContent = shown.toLocaleString();
   
+  // Debug: show current bounds
+  const b = map.getBounds();
+  const dbg = document.getElementById('stat-debug');
+  if (dbg) {
+    dbg.style.display = '';
+    dbg.textContent = `z${map.getZoom()} [${b.getSouthWest().lat.toFixed(3)},${b.getSouthWest().lng.toFixed(3)}]→[${b.getNorthEast().lat.toFixed(3)},${b.getNorthEast().lng.toFixed(3)}]`;
+  }
+  
   // Update legend counts
   for (const cls of Object.keys(CLASSES)) {
     const el = document.getElementById(`count-${cls}`);
@@ -332,6 +346,13 @@ function togglePanel() {
 // Map events — reload on move/zoom with debounce
 let moveTimeout;
 map.on('moveend', () => {
+  clearTimeout(moveTimeout);
+  moveTimeout = setTimeout(loadCyclingData, 300);
+});
+
+// Handle window resize (maximize/restore)
+window.addEventListener('resize', () => {
+  map.invalidateSize();
   clearTimeout(moveTimeout);
   moveTimeout = setTimeout(loadCyclingData, 300);
 });
