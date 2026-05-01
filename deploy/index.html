@@ -290,17 +290,12 @@ function renderFeatures(features) {
       });
       
       line.on('click', () => {
-        let elevHtml = '';
-        if (props.elevation_gain_m != null && props.elevation_gain_m > 0) {
-          elevHtml = `<br>⬆ ${props.elevation_gain_m}m gain · ${props.elevation_min_m}–${props.elevation_max_m}m`;
-        }
         line.bindPopup(`
           <div class="popup-class"><div class="popup-dot" style="background:${info.color}"></div>${info.label}</div>
           <div class="popup-meta">
             ${props.municipality}<br>
             ${props.length_km ? props.length_km.toFixed(2) + ' km' : ''} 
             ${props.surface_type ? '· ' + props.surface_type : ''}
-            ${elevHtml}
             ${props.source_class ? '<br>' + props.source_class : ''}
           </div>
         `).openPopup();
