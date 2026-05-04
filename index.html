@@ -331,9 +331,7 @@ function renderFeatures(features) {
       line.on('click', (e) => {
         L.DomEvent.stopPropagation(e);
         showSegmentPopup(line, props, info);
-        if (props.id && props.elevation_gain_m != null) {
-          loadElevationProfile(props.id);
-        }
+        // Elevation profile disabled — data quality issues
       });
       
       // Hover highlight
@@ -379,12 +377,15 @@ function showSegmentPopup(line, props, info) {
   line.setStyle({ weight: info.weight + 4, opacity: 1 });
 
   let elevHtml = '';
+  // Elevation data hidden — re-enable when data quality improves
+  /*
   if (props.elevation_gain_m != null) {
     elevHtml = `<br>⬆ ${Math.round(props.elevation_gain_m)}m · ⬇ ${Math.round(props.elevation_loss_m || 0)}m`;
     if (props.elevation_min_m != null) {
       elevHtml += ` · ${Math.round(props.elevation_min_m)}–${Math.round(props.elevation_max_m)}m`;
     }
   }
+  */
   line.bindPopup(`
     <div class="popup-class"><div class="popup-dot" style="background:${info.color}"></div>${info.label}</div>
     <div class="popup-meta">

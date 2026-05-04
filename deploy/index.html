@@ -80,11 +80,26 @@
   .loading { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--surface); border: 1px solid var(--border); padding: 6px 16px; border-radius: 20px; font-size: 13px; color: var(--text2); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
   .loading.hidden { display: none; }
 
+  /* Elevation profile */
+  .elev-panel { position: absolute; bottom: 36px; left: 0; right: 0; z-index: 999; background: var(--surface); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0,0,0,0.15); transform: translateY(100%); transition: transform 0.3s ease; }
+  .elev-panel.open { transform: translateY(0); }
+  .elev-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); }
+  .elev-header h3 { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .elev-stats { display: flex; gap: 12px; font-size: 12px; color: var(--text2); }
+  .elev-stats .gain { color: #22c55e; font-weight: 600; }
+  .elev-stats .loss { color: #ef4444; font-weight: 600; }
+  .elev-close { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 16px; }
+  .elev-close:hover { color: var(--text); }
+  .elev-chart { padding: 4px 14px 8px; height: 120px; }
+  .elev-chart svg { width: 100%; height: 100%; }
+  .elev-hint { text-align: center; padding: 20px; color: var(--text2); font-size: 13px; }
+
   /* Mobile */
   @media (max-width: 640px) {
     .panel { width: calc(100% - 24px); right: 12px; left: 12px; }
     .header h1 { font-size: 14px; }
     .header-links { gap: 8px; }
+    .elev-chart { height: 100px; }
   }
 </style>
 </head>
@@ -134,6 +149,18 @@
   </div>
 </div>
 
+<!-- Elevation profile panel -->
+<div class="elev-panel" id="elev-panel">
+  <div class="elev-header">
+    <div>
+      <h3>📈 Elevation Profile</h3>
+      <div class="elev-stats" id="elev-stats"></div>
+    </div>
+    <button class="elev-close" onclick="closeElevation()">✕</button>
+  </div>
+  <div class="elev-chart" id="elev-chart"></div>
+</div>
+
 <div class="stats-bar">
   <span>Segments: <strong id="stat-segments">0</strong></span>
   <span>Total: <strong id="stat-km">0</strong> km</span>
@@ -162,6 +189,7 @@ const COMFORT = {
 };
 
 let map, layers = {}, enabled = new Set(Object.keys(CLASSES)), municipalities = [], loading = false;
+let highlightLine = null;
 
 // Init map
 map = L.map('map', { zoomControl: true }).setView([49.28, -123.12], 12);
@@ -293,7 +321,6 @@ function renderFeatures(features) {
     const lineGroups = coords.map(line => line.map(pt => [pt[1], pt[0]]));
     
     lineGroups.forEach(latlngs => {
-      // For bbox-based data: draw as a thin rectangle or just a marker if too small
       const line = L.polyline(latlngs, {
         color: info.color,
         weight: info.weight,
@@ -301,26 +328,17 @@ function renderFeatures(features) {
         smoothFactor: 1,
       });
       
-      line.on('click', () => {
-        let elevHtml = '';
-        if (props.elevation_gain_m != null && props.elevation_gain_m > 0) {
-          elevHtml = `<br>⬆ ${props.elevation_gain_m}m gain · ${props.elevation_min_m}–${props.elevation_max_m}m`;
-        }
-        line.bindPopup(`
-          <div class="popup-class"><div class="popup-dot" style="background:${info.color}"></div>${info.label}</div>
-          <div class="popup-meta">
-            ${props.municipality}<br>
-            ${props.length_km ? props.length_km.toFixed(2) + ' km' : ''} 
-            ${props.surface_type ? '· ' + props.surface_type : ''}
-            ${elevHtml}
-            ${props.source_class ? '<br>' + props.source_class : ''}
-          </div>
-        `).openPopup();
+      line.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        showSegmentPopup(line, props, info);
+        // Elevation profile disabled — data quality issues
       });
       
       // Hover highlight
       line.on('mouseover', () => line.setStyle({ weight: info.weight + 3, opacity: 1 }));
-      line.on('mouseout', () => line.setStyle({ weight: info.weight, opacity: 0.8 }));
+      line.on('mouseout', () => {
+        if (highlightLine !== line) line.setStyle({ weight: info.weight, opacity: 0.8 });
+      });
       
       layers[cls].addLayer(line);
     });
@@ -343,6 +361,154 @@ function renderFeatures(features) {
   for (const cls of Object.keys(CLASSES)) {
     const el = document.getElementById(`count-${cls}`);
     if (el) el.textContent = counts[cls] ? counts[cls].toLocaleString() : '';
+  }
+}
+
+function showSegmentPopup(line, props, info) {
+  // Remove previous highlight
+  if (highlightLine) {
+    const prevCls = highlightLine._canbics_cls;
+    if (prevCls && CLASSES[prevCls]) {
+      highlightLine.setStyle({ weight: CLASSES[prevCls].weight, opacity: 0.8 });
+    }
+  }
+  highlightLine = line;
+  line._canbics_cls = props.canbics_class;
+  line.setStyle({ weight: info.weight + 4, opacity: 1 });
+
+  let elevHtml = '';
+  // Elevation data hidden — re-enable when data quality improves
+  /*
+  if (props.elevation_gain_m != null) {
+    elevHtml = `<br>⬆ ${Math.round(props.elevation_gain_m)}m · ⬇ ${Math.round(props.elevation_loss_m || 0)}m`;
+    if (props.elevation_min_m != null) {
+      elevHtml += ` · ${Math.round(props.elevation_min_m)}–${Math.round(props.elevation_max_m)}m`;
+    }
+  }
+  */
+  line.bindPopup(`
+    <div class="popup-class"><div class="popup-dot" style="background:${info.color}"></div>${info.label}</div>
+    <div class="popup-meta">
+      ${props.municipality}<br>
+      ${props.length_km ? props.length_km.toFixed(2) + ' km' : ''} 
+      ${props.surface_type ? '· ' + props.surface_type : ''}
+      ${elevHtml}
+      ${props.source_class ? '<br>' + props.source_class : ''}
+    </div>
+  `).openPopup();
+}
+
+// Elevation profile
+async function loadElevationProfile(segId) {
+  const panel = document.getElementById('elev-panel');
+  const chartEl = document.getElementById('elev-chart');
+  const statsEl = document.getElementById('elev-stats');
+  
+  statsEl.innerHTML = 'Loading…';
+  chartEl.innerHTML = '';
+  
+  try {
+    const res = await fetch(`${API}/cycling/elevation?id=${segId}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    
+    if (!data.points || data.points.length < 2) {
+      statsEl.innerHTML = 'No elevation data';
+      panel.classList.add('open');
+      return;
+    }
+    
+    const stats = data.stats || {};
+    const gain = stats.gain_m || 0;
+    const loss = stats.loss_m || 0;
+    const minElev = stats.min_m || 0;
+    const maxElev = stats.max_m || 0;
+    
+    statsEl.innerHTML = `
+      <span class="gain">⬆ ${Math.round(gain)}m</span>
+      <span class="loss">⬇ ${Math.round(loss)}m</span>
+      <span>${Math.round(minElev)}–${Math.round(maxElev)}m</span>
+    `;
+    
+    renderElevChart(data.points, data.grades || []);
+    panel.classList.add('open');
+  } catch (e) {
+    console.error('Failed to load elevation', e);
+    statsEl.innerHTML = 'Failed to load';
+    panel.classList.add('open');
+  }
+}
+
+function renderElevChart(points, grades) {
+  const chartEl = document.getElementById('elev-chart');
+  const elevations = points.map(p => p[2]);
+  const minE = Math.min(...elevations);
+  const maxE = Math.max(...elevations);
+  const range = maxE - minE || 1;
+  
+  const w = chartEl.clientWidth || 600;
+  const h = 100;
+  const pad = { top: 8, bottom: 18, left: 0, right: 0 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+  
+  // Build path
+  const coords = elevations.map((e, i) => {
+    const x = pad.left + (i / (elevations.length - 1)) * cw;
+    const y = pad.top + ch - ((e - minE) / range) * ch;
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  
+  // Gradient colors based on grade
+  const gradeColors = grades.map(g => {
+    if (g == null) return '#22c55e';
+    if (g < -3) return '#3b82f6';  // steep downhill - blue
+    if (g < 0) return '#60a5fa';   // gentle downhill
+    if (g === 0) return '#22c55e'; // flat - green
+    if (g <= 3) return '#eab308';  // gentle uphill - yellow
+    if (g <= 6) return '#f97316';  // moderate - orange
+    return '#ef4444';              // steep - red
+  });
+  
+  // Fill polygon (area under curve)
+  const fillPath = coords.join(' ') + 
+    ` L${(pad.left + cw).toFixed(1)},${(pad.top + ch).toFixed(1)}` +
+    ` L${pad.left.toFixed(1)},${(pad.top + ch).toFixed(1)} Z`;
+  
+  // SVG with gradient fill + colored line segments
+  let segLines = '';
+  for (let i = 1; i < elevations.length; i++) {
+    const x1 = pad.left + ((i - 1) / (elevations.length - 1)) * cw;
+    const y1 = pad.top + ch - ((elevations[i - 1] - minE) / range) * ch;
+    const x2 = pad.left + (i / (elevations.length - 1)) * cw;
+    const y2 = pad.top + ch - ((elevations[i] - minE) / range) * ch;
+    segLines += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${gradeColors[i]}" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
+  
+  chartEl.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="elevFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#22c55e" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="#22c55e" stop-opacity="0.05"/>
+        </linearGradient>
+      </defs>
+      <path d="${fillPath}" fill="url(#elevFill)" />
+      ${segLines}
+      <text x="${pad.left}" y="${h - 3}" font-size="10" fill="#94a3b8">${Math.round(minE)}m</text>
+      <text x="${w - pad.right}" y="${h - 3}" font-size="10" fill="#94a3b8" text-anchor="end">${Math.round(maxE)}m</text>
+    </svg>
+  `;
+}
+
+function closeElevation() {
+  document.getElementById('elev-panel').classList.remove('open');
+  if (highlightLine) {
+    const cls = highlightLine._canbics_cls;
+    if (cls && CLASSES[cls]) {
+      highlightLine.setStyle({ weight: CLASSES[cls].weight, opacity: 0.8 });
+    }
+    highlightLine = null;
   }
 }
 
