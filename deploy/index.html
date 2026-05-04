@@ -54,6 +54,15 @@
   .btn { width: 100%; padding: 8px; background: var(--accent); color: #000; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .btn:hover { filter: brightness(1.1); }
   .btn.secondary { background: var(--surface2); color: var(--text); }
+  .btn.locate { width: auto; padding: 6px 12px; background: var(--accent2); color: #fff; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .btn.locate.active { background: #0d9488; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  .btn.locate.error { background: var(--error, #ef4444); }
+
+  /* User location marker */
+  .user-marker { background: transparent; }
+  .user-dot { width: 18px; height: 18px; background: #3b82f6; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 12px rgba(59,130,246,0.6); }
+  .user-dot::after { content: ''; display: block; width: 6px; height: 6px; background: #fff; border-radius: 50%; position: absolute; top: 6px; left: 6px; }
 
   /* Stats bar */
   .stats-bar { padding: 6px 14px; background: var(--surface); border-top: 1px solid var(--border); display: flex; gap: 16px; font-size: 12px; color: var(--text2); z-index: 1000; flex-shrink: 0; }
@@ -87,6 +96,9 @@
     <a href="https://ogsapps.cc">Portal</a>
     <a href="https://sea.ogsapps.cc">Sea</a>
     <a href="https://elevation.ogsapps.cc">Elevation</a>
+    <button class="btn locate" id="btn-locate" onclick="toggleLocate()" title="Use my location">
+      <span id="locate-icon">📍</span> <span id="locate-text">Locate</span>
+    </button>
     <button onclick="togglePanel()" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px" title="Toggle panel">⚙️</button>
   </div>
 </div>
@@ -290,12 +302,17 @@ function renderFeatures(features) {
       });
       
       line.on('click', () => {
+        let elevHtml = '';
+        if (props.elevation_gain_m != null && props.elevation_gain_m > 0) {
+          elevHtml = `<br>⬆ ${props.elevation_gain_m}m gain · ${props.elevation_min_m}–${props.elevation_max_m}m`;
+        }
         line.bindPopup(`
           <div class="popup-class"><div class="popup-dot" style="background:${info.color}"></div>${info.label}</div>
           <div class="popup-meta">
             ${props.municipality}<br>
             ${props.length_km ? props.length_km.toFixed(2) + ' km' : ''} 
             ${props.surface_type ? '· ' + props.surface_type : ''}
+            ${elevHtml}
             ${props.source_class ? '<br>' + props.source_class : ''}
           </div>
         `).openPopup();
@@ -341,6 +358,86 @@ function resetView() {
 function togglePanel() {
   const panel = document.getElementById('panel');
   panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+// GPS Locator
+let userMarker = null, userCircle = null, watchId = null, locating = false, firstFix = true;
+
+function toggleLocate() {
+  if (locating) { stopLocate(); return; }
+  startLocate();
+}
+
+function startLocate() {
+  if (!navigator.geolocation) {
+    showLocateError('Geolocation not supported');
+    return;
+  }
+  const btn = document.getElementById('btn-locate');
+  btn.classList.add('active');
+  btn.classList.remove('error');
+  document.getElementById('locate-text').textContent = 'Locating…';
+  document.getElementById('locate-icon').textContent = '⏳';
+  locating = true;
+
+  navigator.geolocation.getCurrentPosition(onLocation, onLocateError, {
+    enableHighAccuracy: true, timeout: 15000, maximumAge: 60000
+  });
+  watchId = navigator.geolocation.watchPosition(onLocation, onLocateError, {
+    enableHighAccuracy: true, timeout: 15000, maximumAge: 30000
+  });
+}
+
+function onLocation(pos) {
+  const { latitude, longitude, accuracy } = pos.coords;
+  const latlng = [latitude, longitude];
+  const btn = document.getElementById('btn-locate');
+  btn.classList.remove('active', 'error');
+  document.getElementById('locate-text').textContent = '📍 Live';
+  document.getElementById('locate-icon').textContent = '';
+  locating = true;
+
+  if (!userMarker) {
+    const icon = L.divIcon({ className: 'user-marker', html: '<div class="user-dot"></div>', iconSize: [18,18], iconAnchor: [9,9] });
+    userMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+    userMarker.bindTooltip('You are here', { direction: 'top', offset: [0, -14] });
+  } else {
+    userMarker.setLatLng(latlng);
+  }
+  if (userCircle) { map.removeLayer(userCircle); }
+  if (accuracy) {
+    userCircle = L.circle(latlng, { radius: accuracy, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(map);
+  }
+
+  // Fly on first fix, pan on subsequent
+  if (firstFix) { map.flyTo(latlng, Math.max(map.getZoom(), 14)); firstFix = false; }
+  else { map.panTo(latlng, { animate: true, duration: 0.5 }); }
+}
+
+function stopLocate() {
+  locating = false;
+  firstFix = true;
+  if (watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (userCircle) { map.removeLayer(userCircle); userCircle = null; }
+  const btn = document.getElementById('btn-locate');
+  btn.classList.remove('active', 'error');
+  document.getElementById('locate-icon').textContent = '📍';
+  document.getElementById('locate-text').textContent = 'Locate';
+}
+
+function onLocateError(err) { showLocateError(err.message); }
+
+function showLocateError(msg) {
+  stopLocate();
+  const btn = document.getElementById('btn-locate');
+  btn.classList.add('error');
+  document.getElementById('locate-text').textContent = 'Error';
+  document.getElementById('locate-icon').textContent = '⚠️';
+  setTimeout(() => {
+    btn.classList.remove('error');
+    document.getElementById('locate-icon').textContent = '📍';
+    document.getElementById('locate-text').textContent = 'Locate';
+  }, 3000);
 }
 
 // Map events — reload on move/zoom with debounce
