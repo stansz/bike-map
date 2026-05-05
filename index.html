@@ -359,7 +359,7 @@ function renderFeatures(features) {
         smoothFactor: 1,
       });
       
-      line.bindTooltip(`${(props.length_km || 0).toFixed(1)} km`, { permanent: true, direction: 'center', className: 'segment-label' });
+      line.bindTooltip(`${(props.length_km || 0).toFixed(1)} km`, { direction: 'top', className: 'segment-label' });
 
       line.on('click', (e) => {
         L.DomEvent.stopPropagation(e);
