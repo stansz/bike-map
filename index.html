@@ -23,6 +23,12 @@
   .header-links a { color: var(--text2); text-decoration: none; font-size: 13px; }
   .header-links a:hover { color: var(--text); }
 
+  /* Mode toggle */
+  .mode-toggle { display: flex; background: var(--surface2); border-radius: 20px; overflow: hidden; }
+  .mode-toggle button { padding: 4px 12px; border: none; background: transparent; color: var(--text2); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .mode-toggle button.active { background: var(--accent); color: #000; font-weight: 600; }
+  .mode-toggle button:hover:not(.active) { color: var(--text); }
+
   /* Map container */
   #map { flex: 1; z-index: 1; }
   
@@ -94,6 +100,11 @@
   .elev-chart svg { width: 100%; height: 100%; }
   .elev-hint { text-align: center; padding: 20px; color: var(--text2); font-size: 13px; }
 
+  /* Route mode */
+  .route-line { stroke: #3b82f6; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .route-popup-class { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .route-popup-class span { display: inline-block; margin: 2px 4px 0 0; padding: 1px 6px; border-radius: 10px; font-size: 10px; color: #fff; }
+
   /* Mobile */
   @media (max-width: 640px) {
     .panel { width: calc(100% - 24px); right: 12px; left: 12px; }
@@ -108,6 +119,10 @@
 <div class="header">
   <h1>🚴 <span>OGS</span> Bike Map</h1>
   <div class="header-links">
+    <div class="mode-toggle" id="mode-toggle">
+      <button class="active" onclick="setMode('segments')" id="btn-segments">Segments</button>
+      <button onclick="setMode('routes')" id="btn-routes">Routes</button>
+    </div>
     <a href="https://ogsapps.cc">Portal</a>
     <a href="https://sea.ogsapps.cc">Sea</a>
     <a href="https://elevation.ogsapps.cc">Elevation</a>
@@ -190,6 +205,8 @@ const COMFORT = {
 
 let map, layers = {}, enabled = new Set(Object.keys(CLASSES)), municipalities = [], loading = false;
 let highlightLine = null;
+let currentMode = 'segments';  // 'segments' or 'routes'
+let routeLayer = null;  // single layer for routes
 
 // Init map
 map = L.map('map', { zoomControl: true }).setView([49.28, -123.12], 12);
@@ -264,6 +281,14 @@ function buildClassFilter() {
   }
 }
 
+// Mode switching
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('btn-segments').classList.toggle('active', mode === 'segments');
+  document.getElementById('btn-routes').classList.toggle('active', mode === 'routes');
+  loadCyclingData();
+}
+
 // Load cycling data for current view
 async function loadCyclingData() {
   if (loading) return;
@@ -277,6 +302,7 @@ async function loadCyclingData() {
   let url = `${API}/cycling/bbox?south=${sw.lat.toFixed(5)}&north=${ne.lat.toFixed(5)}&west=${sw.lng.toFixed(5)}&east=${ne.lng.toFixed(5)}&limit=2000`;
   if (muni) url += `&municipality=${encodeURIComponent(muni)}`;
   if (cls) url += `&class=${encodeURIComponent(cls)}`;
+  if (currentMode === 'routes') url += '&mode=routes';
   
   loading = true;
   document.getElementById('loading').classList.remove('hidden');
@@ -298,6 +324,10 @@ async function loadCyclingData() {
 }
 
 function renderFeatures(features) {
+  if (currentMode === 'routes') {
+    renderRoutes(features);
+    return;
+  }
   // Clear all layers
   for (const lg of Object.values(layers)) lg.clearLayers();
   
@@ -362,6 +392,70 @@ function renderFeatures(features) {
     const el = document.getElementById(`count-${cls}`);
     if (el) el.textContent = counts[cls] ? counts[cls].toLocaleString() : '';
   }
+}
+
+// Render merged routes (cross-class)
+function renderRoutes(features) {
+  // Clear segment layers and route layer
+  for (const lg of Object.values(layers)) lg.clearLayers();
+  if (routeLayer) map.removeLayer(routeLayer);
+  routeLayer = L.layerGroup().addTo(map);
+  
+  let totalKm = 0, shown = 0;
+  
+  features.forEach(f => {
+    const props = f.properties;
+    totalKm += props.total_length_km || 0;
+    shown++;
+    
+    const coords = f.geometry.coordinates;
+    // All routes in blue
+    const color = '#3b82f6';
+    const weight = Math.min(2 + (props.segment_count || 1) * 0.2, 8);
+    
+    const lineGroups = coords.map(line => line.map(pt => [pt[1], pt[0]]));
+    
+    lineGroups.forEach(latlngs => {
+      const line = L.polyline(latlngs, {
+        color: color,
+        weight: weight,
+        opacity: 0.75,
+        smoothFactor: 1,
+      });
+      
+      line.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        showRoutePopup(line, props);
+      });
+      
+      line.on('mouseover', () => line.setStyle({ weight: weight + 3, opacity: 1 }));
+      line.on('mouseout', () => line.setStyle({ weight: weight, opacity: 0.75 }));
+      
+      routeLayer.addLayer(line);
+    });
+  });
+  
+  document.getElementById('stat-segments').textContent = shown.toLocaleString();
+  document.getElementById('stat-km').textContent = totalKm.toFixed(1);
+  document.getElementById('stat-showing').textContent = shown.toLocaleString();
+}
+
+function showRoutePopup(line, props) {
+  const comp = props.class_composition || {};
+  const dominant = props.dominant_class;
+  const classChips = Object.entries(comp)
+    .sort((a,b) => b[1] - a[1])
+    .map(([cls, n]) => {
+      const color = CLASSES[cls]?.color || '#666';
+      return `<span style="background:${color}">${CLASSES[cls]?.label || cls} (${n})</span>`;
+    }).join('');
+  
+  line.bindPopup(`
+    <div style="font-weight:600;margin-bottom:4px">🔵 Route · ${props.total_length_km?.toFixed(2)} km</div>
+    <div style="font-size:12px;color:var(--text2)">${props.segment_count} segments · ${props.total_points} points</div>
+    <div class="route-popup-class">${classChips}</div>
+    ${props.municipality ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">${props.municipality}</div>` : ''}
+  `).openPopup();
 }
 
 function showSegmentPopup(line, props, info) {
