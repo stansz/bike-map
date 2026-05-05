@@ -423,10 +423,9 @@ function renderRoutes(features) {
         smoothFactor: 1,
       });
       
-      line.on('click', (e) => {
-        L.DomEvent.stopPropagation(e);
-        showRoutePopup(line, props);
-      });
+      // Use Leaflet built-in popup binding instead of manual click handler
+      const popupContent = buildRoutePopup(props);
+      line.bindPopup(popupContent);
       
       line.on('mouseover', () => line.setStyle({ weight: weight + 3, opacity: 1 }));
       line.on('mouseout', () => line.setStyle({ weight: weight, opacity: 0.75 }));
@@ -440,9 +439,8 @@ function renderRoutes(features) {
   document.getElementById('stat-showing').textContent = shown.toLocaleString();
 }
 
-function showRoutePopup(line, props) {
+function buildRoutePopup(props) {
   const comp = props.class_composition || {};
-  const dominant = props.dominant_class;
   const classChips = Object.entries(comp)
     .sort((a,b) => b[1] - a[1])
     .map(([cls, n]) => {
@@ -450,12 +448,13 @@ function showRoutePopup(line, props) {
       return `<span style="background:${color}">${CLASSES[cls]?.label || cls} (${n})</span>`;
     }).join('');
   
-  line.bindPopup(`
-    <div style="font-weight:600;margin-bottom:4px">🔵 Route · ${props.total_length_km?.toFixed(2)} km</div>
-    <div style="font-size:12px;color:var(--text2)">${props.segment_count} segments · ${props.total_points} points</div>
+  const km = props.total_length_km != null ? props.total_length_km.toFixed(2) : '?';
+  return `
+    <div style="font-weight:600;margin-bottom:4px">🔵 Route · ${km} km</div>
+    <div style="font-size:12px;color:var(--text2)">${props.segment_count || 0} segments · ${props.total_points || 0} points</div>
     <div class="route-popup-class">${classChips}</div>
-    ${props.municipality ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">${props.municipality}</div>` : ''}
-  `).openPopup();
+    ${props.municipality ? '<div style="font-size:11px;color:var(--text2);margin-top:4px">' + props.municipality + '</div>' : ''}
+  `;
 }
 
 function showSegmentPopup(line, props, info) {
