@@ -112,6 +112,7 @@
     .header-links { gap: 8px; }
     .elev-chart { height: 100px; }
   }
+  .segment-label{background:rgba(0,0,0,0.6);color:white;font-size:10px;padding:2px 4px;border:none;border-radius:3px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -358,6 +359,8 @@ function renderFeatures(features) {
         smoothFactor: 1,
       });
       
+      line.bindTooltip(`${(props.length_km || 0).toFixed(1)} km`, { permanent: true, direction: 'center', className: 'segment-label' });
+
       line.on('click', (e) => {
         L.DomEvent.stopPropagation(e);
         showSegmentPopup(line, props, info);
