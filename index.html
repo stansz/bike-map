@@ -241,7 +241,17 @@ function buildLegend() {
   el.querySelectorAll('.legend-item').forEach(item => {
     item.addEventListener('click', () => {
       const cls = item.dataset.class;
-      if (enabled.has(cls)) { enabled.delete(cls); } else { enabled.add(cls); }
+      // Radio-button behavior:
+      // If this class is already the ONLY one enabled → show all
+      // Otherwise → enable only this class, disable all others
+      if (enabled.has(cls) && enabled.size === 1) {
+        // Only this was active — re-enable all
+        Object.keys(CLASSES).forEach(c => enabled.add(c));
+      } else {
+        // Pick just this one
+        enabled.clear();
+        enabled.add(cls);
+      }
       toggleLayers();
       buildLegend();
     });
@@ -249,6 +259,7 @@ function buildLegend() {
 }
 
 function toggleLayers() {
+  if (currentMode === 'routes') return;  // don't touch segment layers in routes mode
   for (const [cls, lg] of Object.entries(layers)) {
     if (enabled.has(cls)) { if (!map.hasLayer(lg)) map.addLayer(lg); }
     else { if (map.hasLayer(lg)) map.removeLayer(lg); }
@@ -287,6 +298,19 @@ function setMode(mode) {
   currentMode = mode;
   document.getElementById('btn-segments').classList.toggle('active', mode === 'segments');
   document.getElementById('btn-routes').classList.toggle('active', mode === 'routes');
+  
+  // Clean layer switching
+  if (mode === 'routes') {
+    // Hide all segment layers
+    for (const lg of Object.values(layers)) {
+      if (map.hasLayer(lg)) map.removeLayer(lg);
+    }
+  } else {
+    // Remove route layer, re-show segment layers
+    if (routeLayer) map.removeLayer(routeLayer);
+    toggleLayers();  // restore segment visibility based on enabled set
+  }
+  
   loadCyclingData();
 }
 
@@ -307,6 +331,7 @@ async function loadCyclingData() {
   
   loading = true;
   document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('loading').textContent = currentMode === 'routes' ? 'Loading routes…' : 'Loading cycling data…';
   
   try {
     const res = await fetch(url);
@@ -429,6 +454,10 @@ function renderRoutes(features) {
       // Use Leaflet built-in popup binding instead of manual click handler
       const popupContent = buildRoutePopup(props);
       line.bindPopup(popupContent);
+      
+      // Distance label on hover
+      const routeKm = props.total_length_km != null ? props.total_length_km.toFixed(1) : '?';
+      line.bindTooltip(`${routeKm} km`, { direction: 'top', className: 'segment-label' });
       
       line.on('mouseover', () => line.setStyle({ weight: weight + 3, opacity: 1 }));
       line.on('mouseout', () => line.setStyle({ weight: weight, opacity: 0.75 }));
