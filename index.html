@@ -211,7 +211,7 @@ let routeLayer = null;  // single layer for routes
 
 // Init map
 map = L.map('map', { zoomControl: true }).setView([49.28, -123.12], 12);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=cb1_5342_1_9ccb0400cfb4bb8322989f56', {
   attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://osm.org/copyright">OSM</a>',
   maxZoom: 18
 }).addTo(map);
